@@ -5,14 +5,16 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 W, H = 1080, 1350
-BG = "#0B1020"
-PANEL = "#121933"
-PANEL_2 = "#182142"
-TEXT = "#F6F7FB"
-MUTED = "#A9B2CC"
-ACCENT = "#7DE2C7"
-ACCENT_2 = "#A8B6FF"
-LINE = "#263154"
+
+BG = "#07101F"
+PANEL = "#101A35"
+PANEL_ALT = "#152142"
+TEXT = "#F7FAFF"
+MUTED = "#A9B4D0"
+ACCENT = "#57E7D6"
+ACCENT_2 = "#8EA4FF"
+LINE = "#28406F"
+SOFT = "#0C1730"
 
 
 def _font(size, bold=False):
@@ -29,120 +31,160 @@ def _font(size, bold=False):
     return ImageFont.load_default()
 
 
-def _round_rect(draw, box, radius=28, fill=PANEL, outline=None, width=1):
-    draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
-
-
-def _fit_text(draw, text, box_width, max_size, min_size=26, bold=False):
+def _fit(draw, text, max_width, max_size, min_size=26, bold=False):
     for size in range(max_size, min_size - 1, -2):
-        font = _font(size, bold)
-        if draw.textbbox((0, 0), text, font=font)[2] <= box_width:
-            return font
+        f = _font(size, bold)
+        box = draw.textbbox((0, 0), text, font=f)
+        if box[2] - box[0] <= max_width:
+            return f
     return _font(min_size, bold)
 
 
-def _wrapped_lines(text, chars=34):
-    return wrap(str(text), width=chars, break_long_words=False, break_on_hyphens=False) or [""]
+def _rr(draw, box, radius=28, fill=PANEL, outline=LINE, width=2):
+    draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+
+
+def _pill(draw, x, y, label, font, fill=PANEL_ALT, text_fill=TEXT):
+    tw = draw.textbbox((0, 0), label, font=font)[2]
+    box = (x, y, x + tw + 38, y + 52)
+    _rr(draw, box, radius=26, fill=fill)
+    draw.text((x + 19, y + 12), label, font=font, fill=text_fill)
+    return box[2]
+
+
+def _wrap_lines(text, width):
+    return wrap(str(text), width=width, break_long_words=False, break_on_hyphens=False) or [""]
+
+
+def _draw_knight_mark(draw, cx, cy, scale=1.0):
+    # Simple abstract knight/strategy motif built from vector primitives.
+    r = int(54 * scale)
+    draw.ellipse((cx-r, cy-r, cx+r, cy+r), outline=ACCENT, width=max(2, int(3*scale)))
+    draw.arc((cx-r//2, cy-r//2, cx+r//2, cy+r//2), start=205, end=30, fill=ACCENT, width=max(3, int(5*scale)))
+    draw.line((cx-16*scale, cy+15*scale, cx+12*scale, cy-20*scale), fill=ACCENT, width=max(3, int(5*scale)))
+    draw.line((cx+12*scale, cy-20*scale, cx+27*scale, cy+4*scale), fill=ACCENT, width=max(3, int(5*scale)))
 
 
 def build_share_card(report, stable_phase, app_url="your-chess-dna.streamlit.app"):
     player = str(report.get("player") or "Chess Player")
     games = int(report.get("games_analyzed") or 0)
     record = report.get("record") or {}
-    patterns = [p for p in (report.get("patterns") or []) if p.get("confidence") in ("high", "medium")]
+
+    patterns = [
+        p for p in (report.get("patterns") or [])
+        if p.get("confidence") in ("high", "medium")
+    ]
     if not patterns:
         patterns = list(report.get("patterns") or [])
 
-    top = patterns[0] if patterns else {
+    fallback = {
         "name": "No strong recurring pattern yet",
         "games_observed": 0,
         "positions_observed": 0,
         "thinking_rule": "Analyze more games to build a stronger profile.",
     }
+    top = patterns[0] if patterns else fallback
     second = patterns[1] if len(patterns) > 1 else None
     third = patterns[2] if len(patterns) > 2 else None
 
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
 
-    # subtle background bands
-    d.ellipse((730, -130, 1250, 390), fill="#151E3D")
-    d.ellipse((-180, 1030, 360, 1560), fill="#101A34")
+    # Background depth
+    d.ellipse((730, -120, 1240, 390), fill="#132344")
+    d.ellipse((-210, 1030, 360, 1570), fill="#0E1B37")
+    d.polygon([(820,0),(1080,0),(1080,370),(930,430),(790,270)], fill="#0A1830")
 
-    # Header
-    d.text((70, 68), "♟  YOUR CHESS DNA", font=_font(28, True), fill=ACCENT)
-    d.text((70, 118), "What keeps showing up in your games?", font=_font(42, True), fill=TEXT)
-    d.text((70, 180), f"@{player}", font=_fit_text(d, f"@{player}", 760, 48, 30, True), fill=ACCENT_2)
+    # Brand
+    d.text((70, 52), "YOUR CHESS DNA", font=_font(27, True), fill=ACCENT)
+    d.line((70, 91, 210, 91), fill=ACCENT, width=3)
 
-    # summary chips
-    chip_y = 245
-    chips = [
-        f"{games} games",
-        f"{record.get('wins',0)}W {record.get('losses',0)}L {record.get('draws',0)}D",
-        f"Stable: {stable_phase}",
-    ]
+    # Hook
+    d.text((70, 118), "THE MISTAKE YOU", font=_font(58, True), fill=TEXT)
+    d.text((70, 180), "KEEP REPEATING", font=_font(64, True), fill=ACCENT)
+    d.text((70, 252), f"@{player}", font=_fit(d, f"@{player}", 700, 34, 24, True), fill=ACCENT_2)
+
+    # Top summary pills
+    pill_font = _font(22, True)
     x = 70
-    for label in chips:
-        font = _font(24, True)
-        tw = d.textbbox((0,0), label, font=font)[2]
-        _round_rect(d, (x, chip_y, x + tw + 42, chip_y + 54), 27, PANEL_2, LINE, 2)
-        d.text((x + 21, chip_y + 13), label, font=font, fill=TEXT)
-        x += tw + 58
+    y = 306
+    x = _pill(d, x, y, f"{games} games", pill_font) + 16
+    x = _pill(d, x, y, f"{record.get('wins',0)}W {record.get('losses',0)}L {record.get('draws',0)}D", pill_font) + 16
+    _pill(d, x, y, f"Stable: {stable_phase}", pill_font)
 
-    # Hero weakness panel
-    _round_rect(d, (60, 340, 1020, 760), 34, PANEL, LINE, 2)
-    d.text((100, 382), "#1 RECURRING PATTERN", font=_font(24, True), fill=ACCENT)
+    # Hero card
+    _rr(d, (48, 390, 1032, 916), radius=34, fill=PANEL)
+    d.text((85, 425), "#1 RECURRING PATTERN", font=_font(24, True), fill=ACCENT)
 
-    name = str(top.get("name", "Recurring Pattern")).upper()
-    name_font = _fit_text(d, name, 840, 61, 34, True)
-    d.text((100, 433), name, font=name_font, fill=TEXT)
+    top_name = str(top.get("name") or "Recurring Pattern").upper()
+    name_lines = _wrap_lines(top_name, 22)
+    name_y = 468
+    for line in name_lines[:2]:
+        f = _fit(d, line, 720, 61, 38, True)
+        d.text((85, name_y), line, font=f, fill=TEXT)
+        name_y += 66
 
     games_obs = int(top.get("games_observed") or 0)
     pos_obs = int(top.get("positions_observed") or 0)
-    big = f"{games_obs} / {games}" if games else str(games_obs)
-    d.text((100, 525), big, font=_font(76, True), fill=ACCENT)
-    d.text((380, 552), "games showed this signal", font=_font(29, True), fill=MUTED)
 
-    d.line((100, 625, 940, 625), fill=LINE, width=2)
-    d.text((100, 650), f"{pos_obs} supporting position{'s' if pos_obs != 1 else ''}", font=_font(28, True), fill=TEXT)
+    metric_y = max(605, name_y + 6)
+    d.text((85, metric_y), f"{games_obs} / {games}", font=_font(86, True), fill=ACCENT)
+    d.text((365, metric_y + 24), "games showed", font=_font(28, True), fill=MUTED)
+    d.text((365, metric_y + 59), "this pattern", font=_font(28, True), fill=MUTED)
 
+    d.line((85, metric_y + 133, 950, metric_y + 133), fill=LINE, width=2)
+    d.text(
+        (85, metric_y + 154),
+        f"Evidence: {pos_obs} positions from your own games",
+        font=_font(26, True),
+        fill=TEXT,
+    )
+
+    # Training rule callout
+    rule_top = metric_y + 205
+    _rr(d, (78, rule_top, 966, rule_top + 128), radius=24, fill=SOFT, outline=ACCENT, width=2)
+    d.text((110, rule_top + 19), "TRAINING RULE", font=_font(19, True), fill=ACCENT)
     rule = str(top.get("thinking_rule") or "")
-    d.text((100, 697), "TRAINING RULE", font=_font(20, True), fill=ACCENT_2)
-    yy = 728
-    for line in _wrapped_lines(rule, 52)[:2]:
-        d.text((100, yy), line, font=_font(25), fill=MUTED)
-        yy += 35
+    yy = rule_top + 50
+    for line in _wrap_lines(rule, 47)[:2]:
+        d.text((110, yy), line, font=_font(27, True), fill=TEXT)
+        yy += 34
 
-    # Secondary patterns
-    d.text((70, 820), "OTHER SIGNALS", font=_font(23, True), fill=MUTED)
+    # Decorative strategy arrows
+    d.line((845, 500, 910, 445), fill="#2A6F9E", width=7)
+    d.polygon([(910,445),(884,452),(902,470)], fill="#2A6F9E")
+    d.line((850, 545, 930, 545), fill="#256484", width=7)
+    d.polygon([(930,545),(904,532),(904,558)], fill="#256484")
 
-    cards = [second, third]
-    for i, p in enumerate(cards):
-        x0 = 60 + i * 490
-        x1 = x0 + 470
-        _round_rect(d, (x0, 865, x1, 1060), 26, PANEL_2, LINE, 2)
+    # Secondary signals
+    d.text((70, 955), "ALSO SHOWING UP", font=_font(23, True), fill=MUTED)
+
+    cards = [(second, 48), (third, 550)]
+    for idx, (p, x0) in enumerate(cards, start=2):
+        _rr(d, (x0, 995, x0 + 482, 1165), radius=26, fill=PANEL_ALT)
+        d.text((x0 + 26, 1022), f"#{idx}", font=_font(24, True), fill=ACCENT)
         if p:
             nm = str(p.get("name") or "")
-            d.text((x0 + 30, 895), f"#{i+2}", font=_font(22, True), fill=ACCENT)
-            lines = _wrapped_lines(nm, 25)[:2]
-            yy2 = 931
+            lines = _wrap_lines(nm, 24)[:2]
+            yy = 1020
             for line in lines:
-                d.text((x0 + 30, yy2), line, font=_font(31, True), fill=TEXT)
-                yy2 += 38
+                d.text((x0 + 96, yy), line, font=_font(29, True), fill=TEXT)
+                yy += 35
             d.text(
-                (x0 + 30, 1010),
+                (x0 + 26, 1118),
                 f"{p.get('games_observed',0)} games · {p.get('positions_observed',0)} positions",
                 font=_font(21),
                 fill=MUTED,
             )
         else:
-            d.text((x0 + 30, 927), "More games =\nstronger profile", font=_font(28, True), fill=TEXT)
+            d.text((x0 + 90, 1030), "More games = stronger profile", font=_font(25, True), fill=TEXT)
 
-    # Footer / CTA
-    _round_rect(d, (60, 1125, 1020, 1275), 30, "#0E1630", LINE, 2)
-    d.text((95, 1158), "What's your Chess DNA?", font=_font(34, True), fill=TEXT)
-    d.text((95, 1205), app_url, font=_font(27, True), fill=ACCENT)
-    d.text((815, 1180), "FREE", font=_font(30, True), fill=ACCENT_2)
+    # CTA
+    _rr(d, (48, 1202, 1032, 1318), radius=28, fill="#0B1932", outline=ACCENT, width=2)
+    _draw_knight_mark(d, 103, 1260, 0.72)
+    d.text((160, 1223), "Find the mistake YOU keep repeating.", font=_font(31, True), fill=TEXT)
+    d.text((160, 1266), app_url, font=_font(24, True), fill=ACCENT_2)
+    d.text((900, 1240), "FREE", font=_font(25, True), fill=ACCENT)
 
     out = BytesIO()
     img.save(out, format="PNG", optimize=True)
