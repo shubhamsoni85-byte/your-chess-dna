@@ -9,6 +9,7 @@ import streamlit.components.v1 as components
 from engine.analyzer import analyze_games
 from engine.diagnosis import aggregate, TAXONOMY
 from engine.reporting import phase_summary, player_summary, html_report
+from engine.share_card import build_share_card
 
 st.set_page_config(page_title="Your Chess DNA", page_icon="♟", layout="wide", initial_sidebar_state="collapsed")
 
@@ -186,6 +187,19 @@ def render_report(report):
 
     st.markdown("""<div class="cta"><b>Your report is not the finish line.</b><br>
     The Training tab turns the exact positions behind these patterns into exercises from your own games.</div>""",unsafe_allow_html=True)
+
+    st.markdown("## Share your Chess DNA")
+    st.caption("Turn your result into a social card. Post the card first; let people ask how you got it.")
+    card_png = build_share_card(report, stable["phase"])
+    st.image(card_png, caption="Your shareable Chess DNA card", use_container_width=True)
+    st.download_button(
+        "Download My Chess DNA (.png)",
+        card_png,
+        file_name=f'{report["player"]}_chess_dna.png',
+        mime="image/png",
+        type="primary",
+        use_container_width=True,
+    )
 
     report_html=html_report(report,report["patterns"])
     c1,c2=st.columns(2)
